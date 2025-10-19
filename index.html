@@ -3,13 +3,13 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>蔵書管理アプリ</title>
+  <title>📚 蔵書・貸出管理アプリ</title>
   <script src="https://unpkg.com/quagga@0.12.1/dist/quagga.min.js"></script>
   <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body class="bg-gray-100 text-gray-800 min-h-screen p-4">
   <div class="max-w-3xl mx-auto">
-    <h1 class="text-2xl font-bold mb-4 text-center">📚 蔵書管理アプリ</h1>
+    <h1 class="text-2xl font-bold mb-4 text-center">📚 蔵書・貸出管理アプリ</h1>
     
     <!-- カメラコントロール -->
     <div class="flex flex-wrap justify-center gap-4 mb-4">
@@ -21,12 +21,12 @@
         <input id="import-input" type="file" accept=".csv" class="hidden" />
       </label>
     </div>
-    
+
     <!-- カメラ映像 -->
     <div id="camera" class="w-full max-h-40 overflow-hidden rounded mb-4 border border-gray-300">
       <div id="scanner" class="w-full h-40 object-contain"></div>
     </div>
-    
+
     <!-- 書籍一覧 -->
     <div>
       <h2 class="text-xl font-semibold mb-2">📖 登録された書籍</h2>
@@ -34,13 +34,21 @@
     </div>
   </div>
 
-  <!-- 書籍情報モーダル -->
+  <!-- モーダル：書籍情報＋貸出管理 -->
   <div id="modal-bg" class="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50 hidden">
     <div id="modal-content" class="bg-white rounded-lg shadow-lg p-6 max-w-sm w-full">
       <h3 class="text-lg font-bold mb-2" id="modal-title"></h3>
       <div class="mb-1 text-gray-700" id="modal-author"></div>
-      <div class="mb-4 text-gray-500 text-sm" id="modal-isbn"></div>
-      <button id="modal-close" class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded w-full">閉じる</button>
+      <div class="mb-2 text-gray-500 text-sm" id="modal-isbn"></div>
+      
+      <!-- 貸出管理 -->
+      <div id="loan-section" class="border-t pt-2 mt-2">
+        <p class="font-semibold mb-2">📦 貸出ステータス:</p>
+        <div id="loan-info" class="mb-2 text-sm text-gray-700"></div>
+        <div id="loan-actions"></div>
+      </div>
+
+      <button id="modal-close" class="bg-gray-400 hover:bg-gray-500 text-white px-4 py-2 rounded w-full mt-4">閉じる</button>
     </div>
   </div>
 
@@ -54,73 +62,116 @@
     let isScanning = false;
     let scannedISBNs = new Set();
 
-    // モーダル要素
+    // モーダル関連
     const modalBg = document.getElementById('modal-bg');
     const modalTitle = document.getElementById('modal-title');
     const modalAuthor = document.getElementById('modal-author');
     const modalIsbn = document.getElementById('modal-isbn');
+    const loanInfo = document.getElementById('loan-info');
+    const loanActions = document.getElementById('loan-actions');
     const modalClose = document.getElementById('modal-close');
+    let currentBook = null;
 
-    // モーダル表示関数
-    function showBookModal({ title, author, isbn }) {
-      modalTitle.textContent = title;
-      modalAuthor.textContent = `著者: ${author}`;
-      modalIsbn.textContent = `ISBN: ${isbn}`;
+    // モーダル表示
+    function showBookModal(book) {
+      currentBook = book;
+      modalTitle.textContent = book.title;
+      modalAuthor.textContent = `著者: ${book.author}`;
+      modalIsbn.textContent = `ISBN: ${book.isbn}`;
+      updateLoanSection(book);
       modalBg.classList.remove('hidden');
     }
-    // モーダル閉じる
-    modalClose.addEventListener('click', () => modalBg.classList.add('hidden'));
-    modalBg.addEventListener('click', (e) => {
-      if (e.target === modalBg) modalBg.classList.add('hidden');
-    });
+
+    // 貸出状態更新
+    function updateLoanSection(book) {
+      if (book.isLent) {
+        loanInfo.innerHTML = `
+          <div>状態: <span class="text-red-600 font-semibold">貸出中</span></div>
+          <div>借用者: ${book.borrower}</div>
+          <div>貸出日: ${book.loanDate}</div>
+        `;
+        loanActions.innerHTML = `
+          <button id="return-btn" class="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded w-full">📥 返却する</button>
+        `;
+        document.getElementById('return-btn').onclick = () => {
+          book.isLent = false;
+          book.borrower = "";
+          book.loanDate = "";
+          saveBooks();
+          loadBooks();
+          updateLoanSection(book);
+        };
+      } else {
+        loanInfo.innerHTML = `<div>状態: <span class="text-green-600 font-semibold">在庫あり</span></div>`;
+        loanActions.innerHTML = `
+          <input id="borrower-input" placeholder="借りる人の名前" class="border p-2 w-full mb-2 rounded" />
+          <button id="lend-btn" class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded w-full">📦 貸し出す</button>
+        `;
+        document.getElementById('lend-btn').onclick = () => {
+          const borrower = document.getElementById('borrower-input').value.trim();
+          if (!borrower) {
+            alert("借用者名を入力してください。");
+            return;
+          }
+          book.isLent = true;
+          book.borrower = borrower;
+          book.loanDate = new Date().toLocaleDateString();
+          saveBooks();
+          loadBooks();
+          updateLoanSection(book);
+        };
+      }
+    }
+
+    modalClose.onclick = () => modalBg.classList.add('hidden');
+    modalBg.onclick = (e) => { if (e.target === modalBg) modalBg.classList.add('hidden'); };
 
     const loadBooks = () => {
       const stored = JSON.parse(localStorage.getItem('books')) || [];
       bookList.innerHTML = '';
-      stored.forEach(book => addBookToList(book));
+      stored.forEach(addBookToList);
       scannedISBNs = new Set(stored.map(b => b.isbn));
     };
 
     const saveBooks = () => {
-      const books = Array.from(bookList.children).map(li => ({
-        isbn: li.dataset.isbn,
-        title: li.querySelector('.title').textContent,
-        author: li.querySelector('.author').textContent
-      }));
+      const books = Array.from(bookList.children).map(li => JSON.parse(li.dataset.book));
       localStorage.setItem('books', JSON.stringify(books));
     };
 
-    const addBookToList = ({isbn, title, author}) => {
-      if (scannedISBNs.has(isbn)) return;
-      scannedISBNs.add(isbn);
+    const addBookToList = (book) => {
+      if (scannedISBNs.has(book.isbn)) return;
+      scannedISBNs.add(book.isbn);
 
       const li = document.createElement('li');
-      li.className = 'bg-white p-4 rounded shadow flex justify-between items-start cursor-pointer hover:bg-blue-50 transition';
-      li.dataset.isbn = isbn;
+      li.className = 'bg-white p-4 rounded shadow flex justify-between items-start hover:bg-blue-50 transition';
+      li.dataset.book = JSON.stringify(book);
       li.innerHTML = `
         <div>
-          <div class="font-bold title">${title}</div>
-          <div class="text-sm text-gray-600 author">${author}</div>
-          <div class="text-xs text-gray-500 mt-1">ISBN: ${isbn}</div>
+          <div class="font-bold">${book.title}</div>
+          <div class="text-sm text-gray-600">${book.author}</div>
+          <div class="text-xs text-gray-500 mt-1">ISBN: ${book.isbn}</div>
+          <div class="text-xs mt-1 ${book.isLent ? 'text-red-600' : 'text-green-600'}">
+            ${book.isLent ? `貸出中（${book.borrower}）` : '在庫あり'}
+          </div>
         </div>
         <button class="bg-red-400 hover:bg-red-500 text-white px-2 py-1 text-sm rounded delete-button">削除</button>
       `;
-      bookList.prepend(li);
 
-      // 削除ボタン
-      li.querySelector('.delete-button').addEventListener('click', (e) => {
+      // 削除
+      li.querySelector('.delete-button').onclick = (e) => {
         e.stopPropagation();
         li.remove();
-        scannedISBNs.delete(isbn);
+        scannedISBNs.delete(book.isbn);
         saveBooks();
-      });
+      };
 
-      // 書籍情報表示
-      li.addEventListener('click', (e) => {
-        // 削除ボタン押下時は無視
+      // モーダル表示
+      li.onclick = (e) => {
         if (e.target.classList.contains('delete-button')) return;
-        showBookModal({ title, author, isbn });
-      });
+        showBookModal(book);
+      };
+
+      bookList.prepend(li);
     };
 
     const startScanner = () => {
@@ -133,43 +184,27 @@
           type: "LiveStream",
           target: scannerContainer,
           constraints: {
-            width: 640,
-            height: 240,
-            facingMode: "environment"
+            width: 640, height: 240, facingMode: "environment"
           }
         },
-        decoder: {
-          readers: ["ean_reader"]
-        }
+        decoder: { readers: ["ean_reader"] }
       }, err => {
-        if (err) {
-          console.error(err);
-          return;
-        }
-        Quagga.start();
-      });
-
-      Quagga.onDetected(async result => {
-        const code = result.codeResult.code;
-        if (!code || scannedISBNs.has(code)) return;
-
-        try {
+        if (err) { console.error(err); return; }
+        Quagga.offDetected();
+        Quagga.onDetected(async result => {
+          const code = result.codeResult.code;
+          if (!code || scannedISBNs.has(code)) return;
           const book = await fetchBookInfo(code);
           if (book) {
             addBookToList(book);
             saveBooks();
           }
-        } catch (err) {
-          console.error('本の情報取得に失敗:', err);
-        }
+        });
+        Quagga.start();
       });
     };
 
-    const stopScanner = () => {
-      if (!isScanning) return;
-      Quagga.stop();
-      isScanning = false;
-    };
+    const stopScanner = () => { if (isScanning) { Quagga.stop(); isScanning = false; } };
 
     const fetchBookInfo = async (isbn) => {
       const res = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}`);
@@ -179,51 +214,57 @@
         return {
           isbn,
           title: item.title || 'タイトル不明',
-          author: (item.authors && item.authors.join(', ')) || '著者不明'
+          author: (item.authors && item.authors.join(', ')) || '著者不明',
+          isLent: false,
+          borrower: "",
+          loanDate: ""
         };
       } else {
-        alert(`ISBN ${isbn} に対応する書籍が見つかりませんでした。`);
+        alert(`ISBN ${isbn} に対応する書籍が見つかりません。`);
         return null;
       }
     };
 
-    // CSVエクスポート機能
+    // CSVエクスポート（貸出情報付き）
     const exportToCSV = () => {
       const books = JSON.parse(localStorage.getItem('books')) || [];
-      if (books.length === 0) {
-        alert("エクスポートする書籍がありません。");
-        return;
-      }
-
-      let csv = "ISBN,タイトル,著者名\n";
-      books.forEach(book => {
+      if (books.length === 0) return alert("エクスポートする書籍がありません。");
+      let csv = "ISBN,タイトル,著者名,状態,借用者,貸出日\n";
+      books.forEach(b => {
         const row = [
-          `"${book.isbn}"`,
-          `"${book.title.replace(/"/g, '""')}"`,
-          `"${book.author.replace(/"/g, '""')}"`
+          `"${b.isbn}"`,
+          `"${b.title.replace(/"/g, '""')}"`,
+          `"${b.author.replace(/"/g, '""')}"`,
+          `"${b.isLent ? '貸出中' : '在庫あり'}"`,
+          `"${b.borrower}"`,
+          `"${b.loanDate}"`
         ];
         csv += row.join(",") + "\n";
       });
-
       const blob = new Blob([csv], {type: 'text/csv;charset=utf-8;'});
-      const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href = url;
-      a.download = 'book_list.csv';
+      a.href = URL.createObjectURL(blob);
+      a.download = 'book_loans.csv';
       a.click();
-      URL.revokeObjectURL(url);
     };
 
-    // CSVインポート機能
+    // CSVインポート
     const importFromCSV = (file) => {
       const reader = new FileReader();
       reader.onload = (e) => {
         const lines = e.target.result.split("\n").filter(line => line.trim());
         const [header, ...rows] = lines;
         rows.forEach(line => {
-          const [isbn, title, author] = line.split(",").map(s => s?.replace(/^"|"$/g, "").replace(/""/g, '"').trim());
-          if (isbn && title && author && !scannedISBNs.has(isbn)) {
-            addBookToList({ isbn, title, author });
+          const [isbn, title, author, status, borrower, loanDate] = line.split(",").map(s => s?.replace(/^"|"$/g, "").replace(/""/g, '"').trim());
+          if (isbn && title) {
+            addBookToList({
+              isbn,
+              title,
+              author,
+              isLent: status === '貸出中',
+              borrower: borrower || "",
+              loanDate: loanDate || ""
+            });
           }
         });
         saveBooks();
@@ -232,14 +273,14 @@
     };
 
     // イベント設定
-    startButton.addEventListener('click', startScanner);
-    stopButton.addEventListener('click', stopScanner);
-    exportButton.addEventListener('click', exportToCSV);
-    importInput.addEventListener('change', (e) => {
+    startButton.onclick = startScanner;
+    stopButton.onclick = stopScanner;
+    exportButton.onclick = exportToCSV;
+    importInput.onchange = (e) => {
       const file = e.target.files[0];
       if (file) importFromCSV(file);
-      e.target.value = ""; // 同じファイルでも再選択できるようにリセット
-    });
+      e.target.value = "";
+    };
 
     loadBooks();
   </script>
