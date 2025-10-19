@@ -12,9 +12,14 @@
     <h1 class="text-2xl font-bold mb-4 text-center">📚 蔵書管理アプリ</h1>
     
     <!-- カメラコントロール -->
-    <div class="flex justify-center gap-4 mb-4">
+    <div class="flex flex-wrap justify-center gap-4 mb-4">
       <button id="start-button" class="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded">カメラ起動</button>
       <button id="stop-button" class="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded">カメラ停止</button>
+      <button id="export-button" class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded">📤 エクスポート</button>
+      <label class="bg-yellow-500 hover:bg-yellow-600 text-white px-4 py-2 rounded cursor-pointer">
+        📥 インポート
+        <input id="import-input" type="file" accept=".csv" class="hidden" />
+      </label>
     </div>
     
     <!-- カメラ映像 -->
@@ -32,12 +37,13 @@
   <script>
     const startButton = document.getElementById('start-button');
     const stopButton = document.getElementById('stop-button');
+    const exportButton = document.getElementById('export-button');
+    const importInput = document.getElementById('import-input');
     const scannerContainer = document.getElementById('scanner');
     const bookList = document.getElementById('book-list');
     let isScanning = false;
     let scannedISBNs = new Set();
 
-    // Load books from localStorage
     const loadBooks = () => {
       const stored = JSON.parse(localStorage.getItem('books')) || [];
       bookList.innerHTML = '';
@@ -45,7 +51,6 @@
       scannedISBNs = new Set(stored.map(b => b.isbn));
     };
 
-    // Save books to localStorage
     const saveBooks = () => {
       const books = Array.from(bookList.children).map(li => ({
         isbn: li.dataset.isbn,
@@ -55,8 +60,10 @@
       localStorage.setItem('books', JSON.stringify(books));
     };
 
-    // Add book to UI list
     const addBookToList = ({isbn, title, author}) => {
+      if (scannedISBNs.has(isbn)) return;
+      scannedISBNs.add(isbn);
+
       const li = document.createElement('li');
       li.className = 'bg-white p-4 rounded shadow flex justify-between items-start';
       li.dataset.isbn = isbn;
@@ -77,7 +84,6 @@
       });
     };
 
-    // Initialize Quagga
     const startScanner = () => {
       if (isScanning) return;
       isScanning = true;
@@ -94,7 +100,7 @@
           }
         },
         decoder: {
-          readers: ["ean_reader"] // ISBNコード (EAN-13)
+          readers: ["ean_reader"]
         }
       }, err => {
         if (err) {
@@ -108,7 +114,6 @@
         const code = result.codeResult.code;
         if (!code || scannedISBNs.has(code)) return;
 
-        scannedISBNs.add(code);
         try {
           const book = await fetchBookInfo(code);
           if (book) {
@@ -127,7 +132,6 @@
       isScanning = false;
     };
 
-    // 書籍情報をGoogle Books APIから取得
     const fetchBookInfo = async (isbn) => {
       const res = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}`);
       const data = await res.json();
@@ -144,11 +148,60 @@
       }
     };
 
-    // イベントリスナー
+    // CSVエクスポート機能
+    const exportToCSV = () => {
+      const books = JSON.parse(localStorage.getItem('books')) || [];
+      if (books.length === 0) {
+        alert("エクスポートする書籍がありません。");
+        return;
+      }
+
+      let csv = "ISBN,タイトル,著者名\n";
+      books.forEach(book => {
+        const row = [
+          `"${book.isbn}"`,
+          `"${book.title.replace(/"/g, '""')}"`,
+          `"${book.author.replace(/"/g, '""')}"`
+        ];
+        csv += row.join(",") + "\n";
+      });
+
+      const blob = new Blob([csv], {type: 'text/csv;charset=utf-8;'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'book_list.csv';
+      a.click();
+      URL.revokeObjectURL(url);
+    };
+
+    // CSVインポート機能
+    const importFromCSV = (file) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const lines = e.target.result.split("\n").filter(line => line.trim());
+        const [header, ...rows] = lines;
+        rows.forEach(line => {
+          const [isbn, title, author] = line.split(",").map(s => s?.replace(/^"|"$/g, "").replace(/""/g, '"').trim());
+          if (isbn && title && author && !scannedISBNs.has(isbn)) {
+            addBookToList({ isbn, title, author });
+          }
+        });
+        saveBooks();
+      };
+      reader.readAsText(file, 'utf-8');
+    };
+
+    // イベント設定
     startButton.addEventListener('click', startScanner);
     stopButton.addEventListener('click', stopScanner);
+    exportButton.addEventListener('click', exportToCSV);
+    importInput.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (file) importFromCSV(file);
+      e.target.value = ""; // 同じファイルでも再選択できるようにリセット
+    });
 
-    // 初期ロード
     loadBooks();
   </script>
 </body>
