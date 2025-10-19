@@ -1,288 +1,143 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>📚 蔵書・貸出管理アプリ</title>
-  <script src="https://unpkg.com/quagga@0.12.1/dist/quagga.min.js"></script>
-  <script src="https://cdn.tailwindcss.com"></script>
+  <meta charset="UTF-8">
+  <title>蔵書管理アプリ</title>
+  <style>
+    body {
+      font-family: "Segoe UI", sans-serif;
+      margin: 30px;
+      background: #f6f6f6;
+    }
+    h1 {
+      text-align: center;
+      color: #333;
+    }
+    input, button {
+      padding: 8px;
+      margin: 5px;
+      border-radius: 6px;
+      border: 1px solid #ccc;
+    }
+    button {
+      background-color: #007bff;
+      color: white;
+      cursor: pointer;
+    }
+    button:hover {
+      background-color: #0056b3;
+    }
+    .book-list {
+      margin-top: 15px;
+      padding: 10px;
+      background: #fff;
+      border-radius: 8px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    }
+    .book-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 6px 0;
+      border-bottom: 1px solid #eee;
+    }
+    .section-title {
+      font-weight: bold;
+      margin-top: 20px;
+      color: #444;
+    }
+  </style>
 </head>
-<body class="bg-gray-100 text-gray-800 min-h-screen p-4">
-  <div class="max-w-3xl mx-auto">
-    <h1 class="text-2xl font-bold mb-4 text-center">📚 蔵書・貸出管理アプリ</h1>
-    
-    <!-- カメラコントロール -->
-    <div class="flex flex-wrap justify-center gap-4 mb-4">
-      <button id="start-button" class="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded">カメラ起動</button>
-      <button id="stop-button" class="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded">カメラ停止</button>
-      <button id="export-button" class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded">📤 エクスポート</button>
-      <label class="bg-yellow-500 hover:bg-yellow-600 text-white px-4 py-2 rounded cursor-pointer">
-        📥 インポート
-        <input id="import-input" type="file" accept=".csv" class="hidden" />
-      </label>
-    </div>
+<body>
+  <h1>📚 蔵書・貸出管理アプリ</h1>
 
-    <!-- カメラ映像 -->
-    <div id="camera" class="w-full max-h-40 overflow-hidden rounded mb-4 border border-gray-300">
-      <div id="scanner" class="w-full h-40 object-contain"></div>
-    </div>
-
-    <!-- 書籍一覧 -->
-    <div>
-      <h2 class="text-xl font-semibold mb-2">📖 登録された書籍</h2>
-      <ul id="book-list" class="space-y-2"></ul>
-    </div>
+  <div>
+    <input id="bookTitle" type="text" placeholder="書籍タイトルを入力">
+    <button onclick="addBook()">登録</button>
   </div>
 
-  <!-- モーダル：書籍情報＋貸出管理 -->
-  <div id="modal-bg" class="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50 hidden">
-    <div id="modal-content" class="bg-white rounded-lg shadow-lg p-6 max-w-sm w-full">
-      <h3 class="text-lg font-bold mb-2" id="modal-title"></h3>
-      <div class="mb-1 text-gray-700" id="modal-author"></div>
-      <div class="mb-2 text-gray-500 text-sm" id="modal-isbn"></div>
-      
-      <!-- 貸出管理 -->
-      <div id="loan-section" class="border-t pt-2 mt-2">
-        <p class="font-semibold mb-2">📦 貸出ステータス:</p>
-        <div id="loan-info" class="mb-2 text-sm text-gray-700"></div>
-        <div id="loan-actions"></div>
-      </div>
+  <div class="section-title">登録された書籍一覧</div>
+  <div id="bookList" class="book-list"></div>
 
-      <button id="modal-close" class="bg-gray-400 hover:bg-gray-500 text-white px-4 py-2 rounded w-full mt-4">閉じる</button>
-    </div>
-  </div>
+  <div class="section-title">貸出中の書籍一覧</div>
+  <div id="borrowedList" class="book-list"></div>
 
   <script>
-    const startButton = document.getElementById('start-button');
-    const stopButton = document.getElementById('stop-button');
-    const exportButton = document.getElementById('export-button');
-    const importInput = document.getElementById('import-input');
-    const scannerContainer = document.getElementById('scanner');
-    const bookList = document.getElementById('book-list');
-    let isScanning = false;
-    let scannedISBNs = new Set();
+    const bookListElement = document.getElementById("bookList");
+    const borrowedListElement = document.getElementById("borrowedList");
 
-    // モーダル関連
-    const modalBg = document.getElementById('modal-bg');
-    const modalTitle = document.getElementById('modal-title');
-    const modalAuthor = document.getElementById('modal-author');
-    const modalIsbn = document.getElementById('modal-isbn');
-    const loanInfo = document.getElementById('loan-info');
-    const loanActions = document.getElementById('loan-actions');
-    const modalClose = document.getElementById('modal-close');
-    let currentBook = null;
+    // localStorageからデータを取得
+    let books = JSON.parse(localStorage.getItem("books") || "[]");
+    let borrowedBooks = JSON.parse(localStorage.getItem("borrowedBooks") || "[]");
 
-    // モーダル表示
-    function showBookModal(book) {
-      currentBook = book;
-      modalTitle.textContent = book.title;
-      modalAuthor.textContent = `著者: ${book.author}`;
-      modalIsbn.textContent = `ISBN: ${book.isbn}`;
-      updateLoanSection(book);
-      modalBg.classList.remove('hidden');
+    // 保存関数
+    function saveData() {
+      localStorage.setItem("books", JSON.stringify(books));
+      localStorage.setItem("borrowedBooks", JSON.stringify(borrowedBooks));
     }
 
-    // 貸出状態更新
-    function updateLoanSection(book) {
-      if (book.isLent) {
-        loanInfo.innerHTML = `
-          <div>状態: <span class="text-red-600 font-semibold">貸出中</span></div>
-          <div>借用者: ${book.borrower}</div>
-          <div>貸出日: ${book.loanDate}</div>
+    // 画面描画
+    function renderLists() {
+      bookListElement.innerHTML = "";
+      borrowedListElement.innerHTML = "";
+
+      // 登録済み一覧
+      books.forEach((title, index) => {
+        const div = document.createElement("div");
+        div.className = "book-item";
+        div.innerHTML = `
+          <span>${title}</span>
+          <button onclick="lendBook(${index})">貸出</button>
         `;
-        loanActions.innerHTML = `
-          <button id="return-btn" class="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded w-full">📥 返却する</button>
+        bookListElement.appendChild(div);
+      });
+
+      // 貸出中一覧
+      borrowedBooks.forEach((item, index) => {
+        const div = document.createElement("div");
+        div.className = "book-item";
+        div.innerHTML = `
+          <span>${item.title}（借りた人：${item.borrower}）</span>
+          <button onclick="returnBook(${index})" style="background:#28a745;">返却</button>
         `;
-        document.getElementById('return-btn').onclick = () => {
-          book.isLent = false;
-          book.borrower = "";
-          book.loanDate = "";
-          saveBooks();
-          loadBooks();
-          updateLoanSection(book);
-        };
-      } else {
-        loanInfo.innerHTML = `<div>状態: <span class="text-green-600 font-semibold">在庫あり</span></div>`;
-        loanActions.innerHTML = `
-          <input id="borrower-input" placeholder="借りる人の名前" class="border p-2 w-full mb-2 rounded" />
-          <button id="lend-btn" class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded w-full">📦 貸し出す</button>
-        `;
-        document.getElementById('lend-btn').onclick = () => {
-          const borrower = document.getElementById('borrower-input').value.trim();
-          if (!borrower) {
-            alert("借用者名を入力してください。");
-            return;
-          }
-          book.isLent = true;
-          book.borrower = borrower;
-          book.loanDate = new Date().toLocaleDateString();
-          saveBooks();
-          loadBooks();
-          updateLoanSection(book);
-        };
-      }
+        borrowedListElement.appendChild(div);
+      });
     }
 
-    modalClose.onclick = () => modalBg.classList.add('hidden');
-    modalBg.onclick = (e) => { if (e.target === modalBg) modalBg.classList.add('hidden'); };
-
-    const loadBooks = () => {
-      const stored = JSON.parse(localStorage.getItem('books')) || [];
-      bookList.innerHTML = '';
-      stored.forEach(addBookToList);
-      scannedISBNs = new Set(stored.map(b => b.isbn));
-    };
-
-    const saveBooks = () => {
-      const books = Array.from(bookList.children).map(li => JSON.parse(li.dataset.book));
-      localStorage.setItem('books', JSON.stringify(books));
-    };
-
-    const addBookToList = (book) => {
-      if (scannedISBNs.has(book.isbn)) return;
-      scannedISBNs.add(book.isbn);
-
-      const li = document.createElement('li');
-      li.className = 'bg-white p-4 rounded shadow flex justify-between items-start hover:bg-blue-50 transition';
-      li.dataset.book = JSON.stringify(book);
-      li.innerHTML = `
-        <div>
-          <div class="font-bold">${book.title}</div>
-          <div class="text-sm text-gray-600">${book.author}</div>
-          <div class="text-xs text-gray-500 mt-1">ISBN: ${book.isbn}</div>
-          <div class="text-xs mt-1 ${book.isLent ? 'text-red-600' : 'text-green-600'}">
-            ${book.isLent ? `貸出中（${book.borrower}）` : '在庫あり'}
-          </div>
-        </div>
-        <button class="bg-red-400 hover:bg-red-500 text-white px-2 py-1 text-sm rounded delete-button">削除</button>
-      `;
-
-      // 削除
-      li.querySelector('.delete-button').onclick = (e) => {
-        e.stopPropagation();
-        li.remove();
-        scannedISBNs.delete(book.isbn);
-        saveBooks();
-      };
-
-      // モーダル表示
-      li.onclick = (e) => {
-        if (e.target.classList.contains('delete-button')) return;
-        showBookModal(book);
-      };
-
-      bookList.prepend(li);
-    };
-
-    const startScanner = () => {
-      if (isScanning) return;
-      isScanning = true;
-
-      Quagga.init({
-        inputStream: {
-          name: "Live",
-          type: "LiveStream",
-          target: scannerContainer,
-          constraints: {
-            width: 640, height: 240, facingMode: "environment"
-          }
-        },
-        decoder: { readers: ["ean_reader"] }
-      }, err => {
-        if (err) { console.error(err); return; }
-        Quagga.offDetected();
-        Quagga.onDetected(async result => {
-          const code = result.codeResult.code;
-          if (!code || scannedISBNs.has(code)) return;
-          const book = await fetchBookInfo(code);
-          if (book) {
-            addBookToList(book);
-            saveBooks();
-          }
-        });
-        Quagga.start();
-      });
-    };
-
-    const stopScanner = () => { if (isScanning) { Quagga.stop(); isScanning = false; } };
-
-    const fetchBookInfo = async (isbn) => {
-      const res = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}`);
-      const data = await res.json();
-      if (data.totalItems > 0) {
-        const item = data.items[0].volumeInfo;
-        return {
-          isbn,
-          title: item.title || 'タイトル不明',
-          author: (item.authors && item.authors.join(', ')) || '著者不明',
-          isLent: false,
-          borrower: "",
-          loanDate: ""
-        };
-      } else {
-        alert(`ISBN ${isbn} に対応する書籍が見つかりません。`);
-        return null;
+    // 書籍登録
+    function addBook() {
+      const title = document.getElementById("bookTitle").value.trim();
+      if (title === "") {
+        alert("書籍タイトルを入力してください。");
+        return;
       }
-    };
+      books.push(title);
+      saveData();
+      document.getElementById("bookTitle").value = "";
+      renderLists();
+    }
 
-    // CSVエクスポート（貸出情報付き）
-    const exportToCSV = () => {
-      const books = JSON.parse(localStorage.getItem('books')) || [];
-      if (books.length === 0) return alert("エクスポートする書籍がありません。");
-      let csv = "ISBN,タイトル,著者名,状態,借用者,貸出日\n";
-      books.forEach(b => {
-        const row = [
-          `"${b.isbn}"`,
-          `"${b.title.replace(/"/g, '""')}"`,
-          `"${b.author.replace(/"/g, '""')}"`,
-          `"${b.isLent ? '貸出中' : '在庫あり'}"`,
-          `"${b.borrower}"`,
-          `"${b.loanDate}"`
-        ];
-        csv += row.join(",") + "\n";
-      });
-      const blob = new Blob([csv], {type: 'text/csv;charset=utf-8;'});
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = 'book_loans.csv';
-      a.click();
-    };
+    // 貸出処理（借りた人の名前も保存）
+    function lendBook(index) {
+      const borrower = prompt("借りた人の名前を入力してください：");
+      if (!borrower) return;
+      const bookTitle = books[index];
+      borrowedBooks.push({ title: bookTitle, borrower });
+      books.splice(index, 1);
+      saveData();
+      renderLists();
+    }
 
-    // CSVインポート
-    const importFromCSV = (file) => {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const lines = e.target.result.split("\n").filter(line => line.trim());
-        const [header, ...rows] = lines;
-        rows.forEach(line => {
-          const [isbn, title, author, status, borrower, loanDate] = line.split(",").map(s => s?.replace(/^"|"$/g, "").replace(/""/g, '"').trim());
-          if (isbn && title) {
-            addBookToList({
-              isbn,
-              title,
-              author,
-              isLent: status === '貸出中',
-              borrower: borrower || "",
-              loanDate: loanDate || ""
-            });
-          }
-        });
-        saveBooks();
-      };
-      reader.readAsText(file, 'utf-8');
-    };
+    // 返却処理
+    function returnBook(index) {
+      const book = borrowedBooks[index];
+      books.push(book.title);
+      borrowedBooks.splice(index, 1);
+      saveData();
+      renderLists();
+    }
 
-    // イベント設定
-    startButton.onclick = startScanner;
-    stopButton.onclick = stopScanner;
-    exportButton.onclick = exportToCSV;
-    importInput.onchange = (e) => {
-      const file = e.target.files[0];
-      if (file) importFromCSV(file);
-      e.target.value = "";
-    };
-
-    loadBooks();
+    renderLists();
   </script>
 </body>
 </html>
