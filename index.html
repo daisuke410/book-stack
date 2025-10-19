@@ -34,6 +34,16 @@
     </div>
   </div>
 
+  <!-- 書籍情報モーダル -->
+  <div id="modal-bg" class="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50 hidden">
+    <div id="modal-content" class="bg-white rounded-lg shadow-lg p-6 max-w-sm w-full">
+      <h3 class="text-lg font-bold mb-2" id="modal-title"></h3>
+      <div class="mb-1 text-gray-700" id="modal-author"></div>
+      <div class="mb-4 text-gray-500 text-sm" id="modal-isbn"></div>
+      <button id="modal-close" class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded w-full">閉じる</button>
+    </div>
+  </div>
+
   <script>
     const startButton = document.getElementById('start-button');
     const stopButton = document.getElementById('stop-button');
@@ -43,6 +53,26 @@
     const bookList = document.getElementById('book-list');
     let isScanning = false;
     let scannedISBNs = new Set();
+
+    // モーダル要素
+    const modalBg = document.getElementById('modal-bg');
+    const modalTitle = document.getElementById('modal-title');
+    const modalAuthor = document.getElementById('modal-author');
+    const modalIsbn = document.getElementById('modal-isbn');
+    const modalClose = document.getElementById('modal-close');
+
+    // モーダル表示関数
+    function showBookModal({ title, author, isbn }) {
+      modalTitle.textContent = title;
+      modalAuthor.textContent = `著者: ${author}`;
+      modalIsbn.textContent = `ISBN: ${isbn}`;
+      modalBg.classList.remove('hidden');
+    }
+    // モーダル閉じる
+    modalClose.addEventListener('click', () => modalBg.classList.add('hidden'));
+    modalBg.addEventListener('click', (e) => {
+      if (e.target === modalBg) modalBg.classList.add('hidden');
+    });
 
     const loadBooks = () => {
       const stored = JSON.parse(localStorage.getItem('books')) || [];
@@ -65,7 +95,7 @@
       scannedISBNs.add(isbn);
 
       const li = document.createElement('li');
-      li.className = 'bg-white p-4 rounded shadow flex justify-between items-start';
+      li.className = 'bg-white p-4 rounded shadow flex justify-between items-start cursor-pointer hover:bg-blue-50 transition';
       li.dataset.isbn = isbn;
       li.innerHTML = `
         <div>
@@ -77,10 +107,19 @@
       `;
       bookList.prepend(li);
 
-      li.querySelector('.delete-button').addEventListener('click', () => {
+      // 削除ボタン
+      li.querySelector('.delete-button').addEventListener('click', (e) => {
+        e.stopPropagation();
         li.remove();
         scannedISBNs.delete(isbn);
         saveBooks();
+      });
+
+      // 書籍情報表示
+      li.addEventListener('click', (e) => {
+        // 削除ボタン押下時は無視
+        if (e.target.classList.contains('delete-button')) return;
+        showBookModal({ title, author, isbn });
       });
     };
 
